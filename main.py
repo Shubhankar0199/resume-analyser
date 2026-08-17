@@ -204,8 +204,8 @@ def groq_json_call(
         )
 
         raise RuntimeError(
-            "Groq API request failed."
-        )
+            f"Groq API request failed: {str(exc)}"
+        ) from exc
 
 
     if not response.choices:
