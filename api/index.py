@@ -2,8 +2,8 @@ import json
 import os
 import io
 from typing import Optional
-from dotenv import load_dotenv
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -28,32 +28,42 @@ if not GROQ_API_KEY:
 
 client = Groq(api_key=GROQ_API_KEY)
 
-MODEL = "llama-3.3-70b-versatile"
-print("========== GROQ CONFIG ==========")
-print(f"GROQ_API_KEY configured: {bool(GROQ_API_KEY)}")
-print(f"GROQ_API_KEY length: {len(GROQ_API_KEY) if GROQ_API_KEY else 0}")
-print(f"Groq model: {MODEL}")
-print("=================================")
+# IMPORTANT:
+# llama-3.3-70b-versatile is no longer available for this project.
+# Use a currently supported Groq GPT OSS model.
+MODEL = "openai/gpt-oss-20b"
 
-MAX_RESUME_SIZE = 10 * 1024 * 1024  
+MAX_RESUME_SIZE = 10 * 1024 * 1024
 MAX_JOB_DESCRIPTION_LENGTH = 30000
 MAX_RESUME_TEXT_LENGTH = 50000
 
 
+print("========== GROQ CONFIG ==========")
+print(f"GROQ_API_KEY configured: {bool(GROQ_API_KEY)}")
+print(f"GROQ_API_KEY length: {len(GROQ_API_KEY)}")
+print(f"Groq model: {MODEL}")
+print("=================================")
 
+
+# ============================================================
+# FASTAPI APPLICATION
+# ============================================================
 
 app = FastAPI(
     title="Resume Analyzer API",
     description="AI-powered resume and job description analyzer",
-    version="1.0.0"
+    version="1.0.0",
 )
 
 
-
+# ============================================================
+# CORS
+# ============================================================
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        # Local development
         "http://localhost:5173",
         "http://127.0.0.1:5173",
 
@@ -66,6 +76,7 @@ app.add_middleware(
         "http://localhost:3000",
         "http://127.0.0.1:3000",
 
+        # Production frontend
         "https://resume-analyser-frontend-beta.vercel.app",
     ],
     allow_credentials=True,
@@ -74,7 +85,9 @@ app.add_middleware(
 )
 
 
-
+# ============================================================
+# PYDANTIC MODELS
+# ============================================================
 
 class JobDescription(BaseModel):
     role: Optional[str] = None
@@ -141,70 +154,69 @@ class Resume(BaseModel):
 
 
 class MatchResult(BaseModel):
-
-    
     score: float = Field(
         ge=0,
         le=100
     )
 
-    
     candidate_name: Optional[str] = None
 
-    
     matching_skills: list[str] = Field(
         default_factory=list
     )
 
-    
     missing_important_skills: list[str] = Field(
         default_factory=list
     )
 
-    
     keyword_suggestions: list[str] = Field(
         default_factory=list
     )
 
-    
     experience_requirement_met: bool
 
-    
     final_verdict: str
 
 
-
+# ============================================================
+# GROQ HELPER
+# ============================================================
 
 def groq_json_call(
     system_prompt: str,
-    user_prompt: str
+    user_prompt: str,
 ) -> dict:
+
+    print("========================================")
+    print("Starting Groq request")
+    print(f"Model: {MODEL}")
+    print("========================================")
 
     try:
 
         response = client.chat.completions.create(
-
             model=MODEL,
 
             messages=[
                 {
                     "role": "system",
-                    "content": system_prompt
+                    "content": system_prompt,
                 },
                 {
                     "role": "user",
-                    "content": user_prompt
-                }
+                    "content": user_prompt,
+                },
             ],
 
             response_format={
                 "type": "json_object"
             },
 
-            temperature=0
+            temperature=0,
         )
 
     except Exception as exc:
+
         print("========== GROQ API ERROR ==========")
         print(f"Exception type: {type(exc).__name__}")
         print(f"Exception: {repr(exc)}")
@@ -238,23 +250,24 @@ def groq_json_call(
 
     except json.JSONDecodeError as exc:
 
-        print(
-            f"Invalid JSON from Groq: {content}"
-        )
+        print("========== GROQ JSON ERROR ==========")
+        print(f"Invalid JSON from Groq: {content}")
+        print("=====================================")
 
         raise RuntimeError(
             "Groq returned invalid JSON."
         ) from exc
 
 
-
+# ============================================================
+# JOB DESCRIPTION PARSER
+# ============================================================
 
 def parse_job_description(
-    job_description_text: str
+    job_description_text: str,
 ) -> JobDescription:
 
     schema = JobDescription.model_json_schema()
-
 
     system_prompt = f"""
 You are an expert HR assistant and job description parser.
@@ -295,19 +308,16 @@ Rules:
 10. Preserve important technical terms and technologies.
 """
 
-
     user_prompt = f"""
 JOB DESCRIPTION:
 
 {job_description_text}
 """
 
-
     data = groq_json_call(
         system_prompt,
-        user_prompt
+        user_prompt,
     )
-
 
     try:
 
@@ -319,17 +329,18 @@ JOB DESCRIPTION:
 
         raise RuntimeError(
             f"Invalid job description structure: {exc}"
-        )
+        ) from exc
 
 
-
+# ============================================================
+# RESUME PARSER
+# ============================================================
 
 def parse_resume(
-    resume_text: str
+    resume_text: str,
 ) -> Resume:
 
     schema = Resume.model_json_schema()
-
 
     system_prompt = f"""
 You are an expert resume parser.
@@ -369,19 +380,16 @@ Rules:
     tools, and methodologies.
 """
 
-
     user_prompt = f"""
 RESUME:
 
 {resume_text}
 """
 
-
     data = groq_json_call(
         system_prompt,
-        user_prompt
+        user_prompt,
     )
-
 
     try:
 
@@ -393,13 +401,15 @@ RESUME:
 
         raise RuntimeError(
             f"Invalid resume structure: {exc}"
-        )
+        ) from exc
 
 
-
+# ============================================================
+# PDF EXTRACTION
+# ============================================================
 
 def read_pdf(
-    file_bytes: bytes
+    file_bytes: bytes,
 ) -> str:
 
     reader = PdfReader(
@@ -408,17 +418,19 @@ def read_pdf(
 
     text_parts = []
 
-
     for page in reader.pages:
 
         try:
 
             page_text = page.extract_text()
 
-        except Exception:
+        except Exception as exc:
+
+            print(
+                f"PDF page extraction error: {repr(exc)}"
+            )
 
             page_text = None
-
 
         if page_text:
 
@@ -426,16 +438,17 @@ def read_pdf(
                 page_text
             )
 
-
     return "\n".join(
         text_parts
     )
 
 
-
+# ============================================================
+# DOCX EXTRACTION
+# ============================================================
 
 def read_docx(
-    file_bytes: bytes
+    file_bytes: bytes,
 ) -> str:
 
     document = Document(
@@ -444,9 +457,7 @@ def read_docx(
 
     text_parts = []
 
-
-    
-
+    # Paragraphs
     for paragraph in document.paragraphs:
 
         text = paragraph.text.strip()
@@ -457,9 +468,7 @@ def read_docx(
                 text
             )
 
-
-    
-
+    # Tables
     for table in document.tables:
 
         for row in table.rows:
@@ -474,21 +483,21 @@ def read_docx(
                         text
                     )
 
-
     return "\n".join(
         text_parts
     )
 
 
-
+# ============================================================
+# RESUME TEXT EXTRACTION
+# ============================================================
 
 def extract_resume_text(
     filename: str,
-    file_bytes: bytes
+    file_bytes: bytes,
 ) -> str:
 
     extension = filename.lower().split(".")[-1]
-
 
     if extension == "pdf":
 
@@ -496,13 +505,11 @@ def extract_resume_text(
             file_bytes
         )
 
-
     if extension == "docx":
 
         return read_docx(
             file_bytes
         )
-
 
     raise ValueError(
         "Unsupported file type. "
@@ -510,15 +517,16 @@ def extract_resume_text(
     )
 
 
-
+# ============================================================
+# RESUME / JOB MATCHING
+# ============================================================
 
 def calculate_match(
     job: JobDescription,
-    resume: Resume
+    resume: Resume,
 ) -> MatchResult:
 
     schema = MatchResult.model_json_schema()
-
 
     system_prompt = f"""
 You are an expert technical recruiter,
@@ -584,29 +592,14 @@ keyword_suggestions should contain useful ATS keywords
 or phrases from the job description that are missing
 from the resume.
 
-These suggestions should help improve the candidate's
-job-match score.
-
-However:
-
 DO NOT tell the candidate to falsely add a skill.
 
 Only suggest a keyword for inclusion when the candidate's
 resume provides reasonable evidence that they may have
 experience with that skill.
 
-For example:
-
-Job description:
-"Experience with Docker"
-
-Resume:
-"Deployed applications using containerized environments"
-
-In this case, Docker may be a reasonable keyword suggestion.
-
-But if the resume contains absolutely no evidence of Docker,
-do not tell the candidate to claim Docker experience.
+If there is no evidence that the candidate knows a
+technology, do not recommend falsely claiming it.
 
 
 ============================================================
@@ -624,8 +617,7 @@ experience based on relevance.
 EDUCATION
 ============================================================
 
-Evaluate education requirements when they are explicitly
-mentioned in the job description.
+Evaluate education requirements when explicitly mentioned.
 
 
 ============================================================
@@ -658,7 +650,6 @@ IMPORTANT RULES
     can overlap when appropriate.
 """
 
-
     user_prompt = f"""
 ============================================================
 JOB DESCRIPTION
@@ -674,12 +665,10 @@ CANDIDATE RESUME
 {resume.model_dump_json(indent=2)}
 """
 
-
     data = groq_json_call(
         system_prompt,
-        user_prompt
+        user_prompt,
     )
-
 
     try:
 
@@ -691,10 +680,12 @@ CANDIDATE RESUME
 
         raise RuntimeError(
             f"Invalid match result structure: {exc}"
-        )
+        ) from exc
 
 
-
+# ============================================================
+# HEALTH CHECK
+# ============================================================
 
 @app.get("/")
 def health_check():
@@ -702,30 +693,33 @@ def health_check():
     return {
         "status": "ok",
         "service": "Resume Analyzer API",
-        "version": "1.0.0"
+        "version": "1.0.0",
+        "model": MODEL,
     }
 
 
-
+# ============================================================
+# ANALYZE ENDPOINT
+# ============================================================
 
 @app.post("/api/analyze")
 async def analyze_resume(
     job_description: str = Form(...),
-    resume: UploadFile = File(...)
+    resume: UploadFile = File(...),
 ):
 
-    
+    # --------------------------------------------------------
+    # Validate job description
+    # --------------------------------------------------------
 
     job_description = job_description.strip()
-
 
     if not job_description:
 
         raise HTTPException(
             status_code=400,
-            detail="Job description cannot be empty."
+            detail="Job description cannot be empty.",
         )
-
 
     if len(job_description) > MAX_JOB_DESCRIPTION_LENGTH:
 
@@ -734,22 +728,21 @@ async def analyze_resume(
             detail=(
                 "Job description is too long. "
                 "Maximum length is 30,000 characters."
-            )
+            ),
         )
 
-
-    
+    # --------------------------------------------------------
+    # Validate resume
+    # --------------------------------------------------------
 
     if not resume.filename:
 
         raise HTTPException(
             status_code=400,
-            detail="Resume file is required."
+            detail="Resume file is required.",
         )
 
-
     filename = resume.filename.lower()
-
 
     if not (
         filename.endswith(".pdf")
@@ -761,18 +754,16 @@ async def analyze_resume(
             detail=(
                 "Unsupported file type. "
                 "Only PDF and DOCX resumes are supported."
-            )
+            ),
         )
 
-
-    
+    # --------------------------------------------------------
+    # Read resume
+    # --------------------------------------------------------
 
     try:
 
         resume_bytes = await resume.read()
-
-
-        
 
         if len(resume_bytes) > MAX_RESUME_SIZE:
 
@@ -780,30 +771,24 @@ async def analyze_resume(
                 status_code=400,
                 detail=(
                     "Resume file must be smaller than 10 MB."
-                )
+                ),
             )
-
 
         if len(resume_bytes) == 0:
 
             raise HTTPException(
                 status_code=400,
-                detail="Uploaded resume is empty."
+                detail="Uploaded resume is empty.",
             )
-
-
-        
 
         resume_text = extract_resume_text(
             resume.filename,
-            resume_bytes
+            resume_bytes,
         )
-
 
     except HTTPException:
 
         raise
-
 
     except Exception as exc:
 
@@ -813,16 +798,14 @@ async def analyze_resume(
 
         raise HTTPException(
             status_code=400,
-            detail=(
-                "Could not read the uploaded resume."
-            )
-        )
+            detail="Could not read the uploaded resume.",
+        ) from exc
 
-
-  
+    # --------------------------------------------------------
+    # Validate extracted text
+    # --------------------------------------------------------
 
     resume_text = resume_text.strip()
-
 
     if not resume_text:
 
@@ -831,70 +814,94 @@ async def analyze_resume(
             detail=(
                 "Could not extract text from the resume. "
                 "Make sure the PDF/DOCX contains selectable text."
-            )
+            ),
         )
 
-
     if len(resume_text) > MAX_RESUME_TEXT_LENGTH:
+
+        print(
+            "Resume text exceeded maximum length. "
+            "Truncating."
+        )
 
         resume_text = resume_text[
             :MAX_RESUME_TEXT_LENGTH
         ]
 
-
+    # --------------------------------------------------------
+    # AI processing
+    # --------------------------------------------------------
 
     try:
 
-        
+        print("========================================")
+        print("STARTING RESUME ANALYSIS")
+        print(f"Model: {MODEL}")
+        print(f"Resume characters: {len(resume_text)}")
+        print(f"Job description characters: {len(job_description)}")
+        print("========================================")
+
+        # Step 1
+        print("Step 1/3: Parsing job description...")
 
         job = parse_job_description(
             job_description
         )
 
+        print("Step 1/3 complete.")
 
-        
+        # Step 2
+        print("Step 2/3: Parsing resume...")
 
         parsed_resume = parse_resume(
             resume_text
         )
 
+        print("Step 2/3 complete.")
 
-        
+        # Step 3
+        print("Step 3/3: Calculating resume match...")
 
         result = calculate_match(
             job,
             parsed_resume
         )
 
+        print("Step 3/3 complete.")
+
+        print("========================================")
+        print("RESUME ANALYSIS COMPLETE")
+        print("========================================")
 
     except Exception as exc:
 
-        print(
-            f"AI processing error: {repr(exc)}"
-        )
+        print("========================================")
+        print("AI PROCESSING ERROR")
+        print(f"Type: {type(exc).__name__}")
+        print(f"Error: {repr(exc)}")
+        print(f"Message: {str(exc)}")
+        print("========================================")
 
         raise HTTPException(
             status_code=500,
             detail=(
                 "AI analysis failed. "
                 "Please try again."
-            )
-        )
+            ),
+        ) from exc
 
-
-    
+    # --------------------------------------------------------
+    # Response
+    # --------------------------------------------------------
 
     return JSONResponse(
-
         content={
-
             "success": True,
 
             "job": job.model_dump(),
 
             "resume": parsed_resume.model_dump(),
 
-            "match": result.model_dump()
-
+            "match": result.model_dump(),
         }
     )
