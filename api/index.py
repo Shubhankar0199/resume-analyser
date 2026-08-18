@@ -29,6 +29,11 @@ if not GROQ_API_KEY:
 client = Groq(api_key=GROQ_API_KEY)
 
 MODEL = "llama-3.3-70b-versatile"
+print("========== GROQ CONFIG ==========")
+print(f"GROQ_API_KEY configured: {bool(GROQ_API_KEY)}")
+print(f"GROQ_API_KEY length: {len(GROQ_API_KEY) if GROQ_API_KEY else 0}")
+print(f"Groq model: {MODEL}")
+print("=================================")
 
 MAX_RESUME_SIZE = 10 * 1024 * 1024  
 MAX_JOB_DESCRIPTION_LENGTH = 30000
@@ -60,6 +65,8 @@ app.add_middleware(
 
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+
+        "https://resume-analyser-frontend-beta.vercel.app",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -198,14 +205,15 @@ def groq_json_call(
         )
 
     except Exception as exc:
-
-        print(
-            f"Groq API error: {repr(exc)}"
-        )
+        print("========== GROQ API ERROR ==========")
+        print(f"Exception type: {type(exc).__name__}")
+        print(f"Exception: {repr(exc)}")
+        print(f"Exception string: {str(exc)}")
+        print("====================================")
 
         raise RuntimeError(
-            "Groq API request failed."
-        )
+            f"Groq API request failed: {str(exc)}"
+        ) from exc
 
 
     if not response.choices:
