@@ -1,7 +1,7 @@
 import React, { useState, useRef } from "react";
 import "./App.css";
 
-const API_BASE_URL = "https://resume-analyser-gamma-one.vercel.app";
+const API_BASE_URL = "https://resume-analyser-or3o.onrender.com";
 
 export default function App() {
   const [jd, setJd] = useState("");
